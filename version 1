@@ -1,0 +1,335 @@
+# ============================================================
+# Proyecto MIA — Notebook completo (Colab) CORREGIDO (GLOBAL)
+# - CPU + DISCO + RED + MEM
+# - Agregado horario: mean/max/std del bloque 5m
+# - Features: lags + rolling_mean (sin rolling_std/max)
+# - Isolation Forest + StandardScaler
+# - Sostenidas: consecutivas (racha >= K)
+# - No alertar: antes de ser evaluable + no alertar en datos de entrenamiento
+# - Descarga 3 archivos al final
+# ============================================================
+
+!pip -q install pandas scikit-learn
+
+import numpy as np
+import pandas as pd
+from google.colab import files
+
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+
+# =========================
+# 1) Subir metrics_windows.csv
+# =========================
+uploaded = files.upload()
+in_file = list(uploaded.keys())[0]
+print("Archivo cargado:", in_file)
+
+# =========================
+# 2) Configuración
+# =========================
+COL_TIME = "timestamp_utc"
+COL_INSTANCE = "instance"
+COL_METRIC = "metric"
+COL_VALUE = "value"
+
+CPU_METRIC   = "cpu_pct"
+MEM_METRIC   = "mem_pct"               # <-- cambia si tu CSV usa otro nombre
+DISK_PREFIX  = "disk_pct_"             # disk_pct_C:, disk_pct_D:, etc.
+NET_METRICS  = {"net_rx_Bps", "net_tx_Bps"}
+
+# Horario (96h histórico funciona bien con 24h)
+WINDOWS_H = [6, 12, 24]
+LAGS_H    = [1, 2, 6, 12, 24]
+
+# Isolation Forest
+N_ESTIMATORS = 400
+CONTAMINATION = 0.01
+RANDOM_STATE = 42
+
+# Sostenidas por CONSECUTIVAS: racha >= K
+SUSTAINED_CONSEC_K = 4
+
+# Entrenar SOLO con servidores normales (si vacío, usa todos)
+NORMAL_INSTANCES = [
+  "192.168.60.12:9182",
+  "192.168.60.45:9182",
+  "10.20.0.5:9182",
+  "10.20.0.4:9182",
+  "192.168.60.229:9182",
+  "10.20.0.8:9182",
+  "192.168.60.53:9182",
+  "192.168.60.10:9182"
+]
+
+# Mínimo histórico evaluable
+MIN_HISTORY = max(max(WINDOWS_H), max(LAGS_H))  # 24
+print("MIN_HISTORY (horas):", MIN_HISTORY)
+
+# =========================
+# 3) Leer dataset crudo
+# =========================
+df_raw = pd.read_csv(in_file, sep=';')
+
+for c in [COL_TIME, COL_INSTANCE, COL_METRIC, COL_VALUE]:
+    if c not in df_raw.columns:
+        raise ValueError(f"Falta columna '{c}'. Columnas encontradas: {list(df_raw.columns)}")
+
+df_raw[COL_TIME]  = pd.to_datetime(df_raw[COL_TIME], errors="coerce", utc=True)
+df_raw[COL_VALUE] = pd.to_numeric(df_raw[COL_VALUE], errors="coerce")
+df_raw = df_raw.dropna(subset=[COL_TIME, COL_INSTANCE, COL_METRIC, COL_VALUE]).copy()
+
+print("Filas crudas:", len(df_raw))
+print("Servidores:", df_raw[COL_INSTANCE].nunique())
+print("Métricas únicas:", df_raw[COL_METRIC].nunique())
+print("Métricas:", sorted(df_raw[COL_METRIC].unique()))
+
+# =========================
+# 4) Filtrar CPU + DISCO + RED + MEM
+# =========================
+is_cpu  = df_raw[COL_METRIC].eq(CPU_METRIC)
+is_mem  = df_raw[COL_METRIC].eq(MEM_METRIC)
+is_disk = df_raw[COL_METRIC].astype(str).str.startswith(DISK_PREFIX)
+is_net  = df_raw[COL_METRIC].isin(NET_METRICS)
+
+df = df_raw[is_cpu | is_mem | is_disk | is_net].copy()
+print("Filas filtradas (CPU+MEM+DISK+NET):", len(df))
+print("Métricas seleccionadas:", sorted(df[COL_METRIC].unique()))
+
+if MEM_METRIC not in set(df[COL_METRIC].unique()):
+    print(f"⚠️ No encontré '{MEM_METRIC}'. Revisa el nombre real en metric y actualiza MEM_METRIC.")
+
+# =========================
+# 5) Consolidar a 1H por servidor y métrica
+# =========================
+df["hour"] = df[COL_TIME].dt.floor("h")
+
+agg = (
+    df.groupby([COL_INSTANCE, "hour", COL_METRIC])[COL_VALUE]
+      .agg(["mean", "max", "std"])
+      .reset_index()
+)
+agg["std"] = agg["std"].fillna(0.0)
+
+wide = agg.pivot_table(
+    index=[COL_INSTANCE, "hour"],
+    columns=COL_METRIC,
+    values=["mean", "max", "std"],
+    aggfunc="first"
+).reset_index()
+
+# Aplanar columnas preservando instance/hour
+new_cols = []
+for col_tuple in wide.columns:
+    if isinstance(col_tuple, tuple) and col_tuple[1] == "":
+        new_cols.append(col_tuple[0])
+    else:
+        stat = col_tuple[0]
+        metric = col_tuple[1]
+        new_cols.append(f"{metric}__{stat}5m")
+wide.columns = new_cols
+
+wide["hour"] = pd.to_datetime(wide["hour"], errors="coerce", utc=True)
+wide = wide.dropna(subset=["hour", COL_INSTANCE]).sort_values([COL_INSTANCE, "hour"]).copy()
+
+print("Filas horarias:", len(wide))
+print("Columnas (muestra):", wide.columns[:15].tolist())
+
+# Guardar agregado
+wide.to_csv("infra_hourly_aggregated_cpu_disk_net_mem.csv", index=False)
+
+# =========================
+# 6) Features temporales (estables)
+#    - Lags + rolling_mean SOLO sobre __mean5m
+#    - Incluye base_cols (mean/max/std 5m) como features directas
+# =========================
+def build_features(df_hourly: pd.DataFrame):
+    df_hourly = df_hourly.sort_values([COL_INSTANCE, "hour"]).copy()
+
+    base_cols = [c for c in df_hourly.columns if c not in [COL_INSTANCE, "hour"]]
+    mean_cols = [c for c in base_cols if c.endswith("__mean5m")]
+
+    g = df_hourly.groupby(COL_INSTANCE, group_keys=False)
+
+    # Relleno por servidor para faltantes
+    df_hourly[base_cols] = g[base_cols].apply(lambda x: x.ffill().bfill())
+    df_hourly[base_cols] = df_hourly[base_cols].fillna(0.0)
+
+    feature_cols = []
+    new_series = []
+
+    for col in mean_cols:
+        # Lags
+        for lag in LAGS_H:
+            c_lag = f"{col}__lag_{lag}h"
+            new_series.append(g[col].shift(lag).rename(c_lag))
+            feature_cols.append(c_lag)
+
+        # Diff 1h (si quieres aún menos ruido, comenta estas 2 líneas)
+        c_diff_1h = f"{col}__diff_1h"
+        new_series.append((df_hourly[col] - g[col].shift(1)).rename(c_diff_1h))
+        feature_cols.append(c_diff_1h)
+
+        # Rolling mean (sin std/max)
+        for w in WINDOWS_H:
+            r = g[col].rolling(window=w, min_periods=w)
+            c_rm = f"{col}__roll_mean_{w}h"
+            new_series.append(r.mean().reset_index(level=0, drop=True).rename(c_rm))
+            feature_cols.append(c_rm)
+
+    if new_series:
+        df_hourly = pd.concat([df_hourly] + new_series, axis=1)
+
+    feature_cols += base_cols
+
+    # Quitar filas iniciales sin suficiente histórico
+    df_hourly = df_hourly.dropna(subset=feature_cols).copy()
+
+    return df_hourly, feature_cols
+
+df_feat, feature_cols = build_features(wide)
+print("Filas con features:", len(df_feat))
+print("N features:", len(feature_cols))
+
+# =========================
+# 7) Entrenamiento (GLOBAL) con NORMAL_INSTANCES (si aplica)
+# =========================
+if NORMAL_INSTANCES:
+    train_df = df_feat[df_feat[COL_INSTANCE].isin(NORMAL_INSTANCES)].copy()
+    if train_df.empty:
+        raise ValueError("NORMAL_INSTANCES no coincide con ningún instance del archivo.")
+else:
+    train_df = df_feat.copy()
+
+# --- claves de entrenamiento (instance, hour) para luego NO alertar ahí ---
+train_df["hour"] = pd.to_datetime(train_df["hour"], utc=True)
+train_keys = set(zip(train_df[COL_INSTANCE].astype(str), train_df["hour"]))
+
+X_train = train_df[feature_cols].values
+
+scaler = StandardScaler()
+X_train_s = scaler.fit_transform(X_train)
+
+model = IsolationForest(
+    n_estimators=N_ESTIMATORS,
+    contamination=CONTAMINATION,
+    random_state=RANDOM_STATE,
+    n_jobs=-1
+)
+model.fit(X_train_s)
+
+
+import numpy as np
+
+# 1) Score del entrenamiento (misma fórmula que usas en out)
+train_scores = -model.score_samples(X_train_s)
+
+# 2) Umbral por percentil (elige uno)
+THRESHOLD_PCT = 99.5   # recomendado: 99.0 o 99.5 (más alto = menos sensibles)
+threshold = float(np.percentile(train_scores, THRESHOLD_PCT))
+
+print(f"✅ Threshold anomaly_score (P{THRESHOLD_PCT}) = {threshold:.6f}")
+
+# (Opcional) guarda el threshold para producción
+with open("threshold.txt", "w") as f:
+    f.write(str(threshold))
+
+
+
+# =========================
+# 8) Scoring + anomalías puntuales
+# =========================
+X_all = df_feat[feature_cols].values
+X_all_s = scaler.transform(X_all)
+
+anomaly_score = -model.score_samples(X_all_s)   # mayor = más anómalo
+pred = model.predict(X_all_s)
+is_anomaly = (pred == -1).astype(int)
+
+out = df_feat[[COL_INSTANCE, "hour"]].copy()
+out["hour"] = pd.to_datetime(out["hour"], utc=True)
+out["anomaly_score"] = anomaly_score
+out["is_anomaly"] = is_anomaly
+
+# =========================
+# 8.1) Sostenidas por CONSECUTIVAS
+# =========================
+def sustained_consecutive(series_01: pd.Series, k: int) -> pd.Series:
+    s = series_01.fillna(0).astype(int)
+    grp = (s.ne(s.shift())).cumsum()
+    run_len = s.groupby(grp).transform("sum")
+    return ((s == 1) & (run_len >= k)).astype(int)
+
+out = out.sort_values([COL_INSTANCE, "hour"]).copy()
+out["is_anomaly_sustained"] = (
+    out.groupby(COL_INSTANCE)["is_anomaly"]
+       .apply(lambda s: sustained_consecutive(s, SUSTAINED_CONSEC_K))
+       .reset_index(level=0, drop=True)
+)
+
+# =========================
+# 8.2) Evaluable + NO alertar en warmup + NO alertar en entrenamiento
+# =========================
+out["is_evaluable"] = (
+    out.groupby(COL_INSTANCE)["hour"].transform("count") >= MIN_HISTORY
+)
+
+# warmup
+out.loc[~out["is_evaluable"], ["is_anomaly", "is_anomaly_sustained"]] = 0
+
+# NO alertar en training (por clave instance+hour, robusto aunque cambien índices)
+out_keys = list(zip(out[COL_INSTANCE].astype(str), out["hour"]))
+mask_train = pd.Series(out_keys, index=out.index).isin(train_keys)
+out.loc[mask_train, ["is_anomaly", "is_anomaly_sustained"]] = 0
+
+# Guardar salida principal
+out.to_csv("infra_hourly_iforest_anomalies_cpu_disk_net_mem.csv", index=False)
+print("✅ Generado: infra_hourly_iforest_anomalies_cpu_disk_net_mem.csv")
+print("Anomalías puntuales:", int(out["is_anomaly"].sum()))
+print("Anomalías sostenidas (consecutivas):", int(out["is_anomaly_sustained"].sum()))
+
+# =========================
+# 9) Resumen por servidor
+# =========================
+summary = (
+    out.groupby(COL_INSTANCE)
+       .agg(
+           rows=("is_anomaly", "count"),
+           anomalies=("is_anomaly", "sum"),
+           sustained=("is_anomaly_sustained", "sum"),
+           max_score=("anomaly_score", "max"),
+           anomaly_rate=("is_anomaly", "mean"),
+           sustained_rate=("is_anomaly_sustained", "mean"),
+       )
+       .sort_values(["sustained", "anomalies", "max_score"], ascending=False)
+       .reset_index()
+)
+
+summary.to_csv("infra_iforest_summary_by_instance_cpu_disk_net_mem.csv", index=False)
+print("✅ Generado: infra_iforest_summary_by_instance_cpu_disk_net_mem.csv")
+display(summary.head(10))
+
+# =========================
+# 9.1) Episodios sostenidos (conteo de incidentes por servidor)
+# =========================
+def count_episodes(s: pd.Series) -> int:
+    s = s.fillna(0).astype(int)
+    return int((s.eq(1) & s.shift(1, fill_value=0).eq(0)).sum())
+
+episodes = (
+    out[out["is_evaluable"]]
+      .groupby(COL_INSTANCE)["is_anomaly_sustained"]
+      .apply(count_episodes)
+      .reset_index(name="sustained_episodes")
+)
+
+episodes.to_csv("infra_sustained_episodes_by_instance.csv", index=False)
+print("✅ Generado: infra_sustained_episodes_by_instance.csv")
+display(episodes.sort_values("sustained_episodes", ascending=False).head(10))
+
+# =========================
+# 10) Descargar resultados (3 archivos principales)
+# =========================
+files.download("infra_hourly_aggregated_cpu_disk_net_mem.csv")
+files.download("infra_hourly_iforest_anomalies_cpu_disk_net_mem.csv")
+files.download("infra_iforest_summary_by_instance_cpu_disk_net_mem.csv")
