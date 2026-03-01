@@ -1,0 +1,360 @@
+mport pandas as pd
+import numpy as np
+
+PATH = "/content/metrics_windows_nuevas.csv"
+df = pd.read_csv(PATH, sep=";")
+
+#LIMPIEZA DEL DATASET
+
+#convertir columnas time a tipo fecha y value a número real
+df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"], utc=True, errors="coerce")
+df["value"] = pd.to_numeric(df["value"], errors="coerce")
+
+# Eliminar filas donde no hubo valor  fecha
+df = df.dropna(subset=["timestamp_utc", "value"])
+
+# Agrupa datos dentro del intervalo de 15 minutos
+df["t15"] = df["timestamp_utc"].dt.floor("15min")
+
+print("Filas:", len(df))
+print("Servidores:", df["instance"].nunique())
+print("Métricas:", df["metric"].nunique())
+print("Rango:", df["timestamp_utc"].min(), "->", df["timestamp_utc"].max())
+
+# Intervalos reales de 15 minutos 
+print("Puntos 15m únicos:", df["t15"].nunique())
+
+# Chequeo de frecuencia por servidor (cuántos puntos 15m tiene cada uno)
+pts_by_srv = df.groupby("instance")["t15"].nunique().sort_values(ascending=False)
+print("\nPuntos 15m por servidor (top):")
+print(pts_by_srv.head(10))
+
+# Crear contenedores reales de 15 minutos
+df["t15"] = df["timestamp_utc"].dt.floor("15min")
+
+# Agrupa por intervalo, servidor y métrica y caluclo el promedio en ese intervalo (único valor respresenyativo por métrica)
+interval_df = (
+    df.groupby(["t15", "instance", "metric"])["value"]
+      .mean()
+      .reset_index()
+)
+
+print("Filas 15m:", len(interval_df))
+print(interval_df.head())
+
+#GENERAR DATASET ESTRUCTURADO PARA IA (PIVOT)
+# Crear columna 15 minutos
+df["t15"] = df["timestamp_utc"].dt.floor("15min")
+
+# Promedio por 15min, servidor y métrica
+interval_df = (
+    df.groupby(["t15", "instance", "metric"])["value"]
+      .mean()
+      .reset_index()
+)
+
+# Pivot a formato wide
+wide = interval_df.pivot_table(
+    index=["t15", "instance"],
+    columns="metric",
+    values="value",
+    aggfunc="mean"
+).reset_index()
+
+wide = wide.sort_values(["instance", "t15"]).reset_index(drop=True)
+
+print("Shape wide:", wide.shape)
+print("NaN totales:", int(wide.isna().sum().sum()))
+print(wide.head())
+
+#Rellenar discos inexistentes con 0
+disk_cols = [c for c in wide.columns if "disk_pct" in c.lower()]
+wide[disk_cols] = wide[disk_cols].fillna(0)
+#Rellenar valores faltantes con el último valor valido del mismo servidor
+wide = wide.sort_values(["instance", "t15"]).reset_index(drop=True)
+
+for col in ["cpu_pct", "mem_pct"]:
+    if col in wide.columns:
+        wide[col] = wide.groupby("instance")[col].ffill()
+
+# ============================================================
+# FORZAR CONTINUIDAD 15 MIN POR SERVIDOR
+# ============================================================
+
+wide = wide.copy()
+full_data = []
+
+#Reconstruir la linea de tiempo por servidor
+
+for srv in wide["instance"].unique():
+#Extraer datos del servidor
+
+    temp = wide[wide["instance"] == srv].copy()
+
+    # Rango completo cada 15 minutos del servidor (tiempo continuo)
+    full_range = pd.date_range(
+        start=temp["t15"].min(),
+        end=temp["t15"].max(),
+        freq="15min"
+    )
+
+    # Crear grid completo (crea manlla temporal completa)
+    grid = pd.DataFrame({
+        "t15": full_range,
+        "instance": srv
+    })
+
+    # Merge con datos reales (timeline cada 15 minutos, datos reales, conserva los intervalos)
+    temp_full = grid.merge(
+        temp,
+        on=["t15", "instance"],
+        how="left"
+    )
+#guarda cada servidor corregido
+    full_data.append(temp_full)
+#Reconstruye el dataset completo
+wide = pd.concat(full_data, ignore_index=True)
+
+print("Shape después de forzar continuidad:", wide.shape)
+print("NaN totales después continuidad:", int(wide.isna().sum().sum()))
+
+# ===== IMPUTACIÓN POST-CONTINUIDAD (15 MIN) =====
+
+#Separa identificadores de features
+
+id_cols = ["t15", "instance"]
+feature_cols = [c for c in wide.columns if c not in id_cols]
+
+# 1) Discos inexistentes se rellena con 0
+disk_cols = [c for c in feature_cols if "disk" in c.lower()]
+wide[disk_cols] = wide[disk_cols].fillna(0)
+
+# 2) CPU y MEM -> forward fill por servidor
+for col in ["cpu_pct", "mem_pct"]:
+    if col in wide.columns:
+      #Cubre huecos temporales sin perder continuidad
+        wide[col] = wide.groupby("instance")[col].ffill()
+
+# 3) Si al inicio aún queda NaN en CPU/MEM -> mediana por servidor
+for col in ["cpu_pct", "mem_pct"]:
+    if col in wide.columns:
+        wide[col] = wide.groupby("instance")[col].transform(lambda x: x.fillna(x.median()))
+
+# 4) Si queda algún NaN en cualquier feature -> mediana global
+wide[feature_cols] = wide[feature_cols].fillna(wide[feature_cols].median(numeric_only=True))
+
+print("NaN totales después imputación:", int(wide.isna().sum().sum()))
+
+# Ventanas móviles temporales sobre el comportamiento del servidor
+WINDOW_N = 16   # 16 puntos = 4 horas reales
+
+feat_cols = [c for c in wide.columns if c not in ["t15", "instance"]]
+
+def build_windows(g):
+
+    g = g.sort_values("t15").copy()
+
+    #Calcular estadisticas cuando haya 16 puntos completos
+
+    roll = g[feat_cols].rolling(WINDOW_N, min_periods=WINDOW_N)
+
+    out = pd.DataFrame({
+        "t15": g["t15"],
+        "instance": g["instance"]
+    })
+
+    # Promedio, máximo, variabilidad (Comportamiento contextual)
+    out = pd.concat([out, roll.mean().add_prefix("mean_")], axis=1)
+    out = pd.concat([out, roll.max().add_prefix("max_")], axis=1)
+    out = pd.concat([out, roll.std().add_prefix("std_")], axis=1)
+
+    # Tendencia promedio dentro de ventana (reduce falsos positivos)
+    trend = g[feat_cols].diff().rolling(WINDOW_N, min_periods=WINDOW_N).mean()
+    out = pd.concat([out, trend.add_prefix("trend_")], axis=1)
+
+    # Eliminar filas sin ventana completa
+    out = out.dropna().reset_index(drop=True)
+
+    return out
+
+#dataset con ventanas deslizantes
+win = wide.groupby("instance", group_keys=False).apply(build_windows).reset_index(drop=True)
+
+print("Shape win:", win.shape)
+print("NaN totales win:", win.isna().sum().sum())
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import IsolationForest
+import numpy as np
+import pandas as pd
+
+# =========================
+# Configuración
+# =========================
+P = 97  #Percentil 3% mas extremo de los servidores normales
+CONTAM = 0.01 #1% del entrenamiento puede ser anómalo
+
+MIN_POINTS = 192   # 48h  #48 horas de historia para empezar a evaluar
+SUSTAIN_N  = 8     # 2h sostenida si estuvo anómalo alerta
+
+# IPs de servidores NORMALES 
+NORMAL_IPS = ["192.168.60.237"]
+
+# =========================
+# Helper: extraer IP
+# =========================
+def get_ip(instance: str) -> str:
+    return str(instance).split(":")[0].strip()
+
+# =========================
+# 0) Preparar columnas
+# =========================
+win = win.copy()
+win["ip"] = win["instance"].apply(get_ip)
+
+# Validar que existan normales en el dataset
+ips_in_data = sorted(win["ip"].unique())
+missing_ips = [ip for ip in NORMAL_IPS if ip not in ips_in_data]
+if missing_ips:
+    print("⚠️ Estas IPs normales NO están en el dataset:", missing_ips)
+print("✅ IPs en dataset (muestra):", ips_in_data[:10])
+
+# =========================
+# 1) Entrenar SOLO con servidores normales
+# =========================
+train_df = win[win["ip"].isin(NORMAL_IPS)].copy()
+
+# Warm-up: filtrar normales con suficiente historia (puntos 15m)
+points_count = train_df.groupby("instance")["t15"].nunique()
+good_instances = points_count[points_count >= MIN_POINTS].index.tolist()
+train_df = train_df[train_df["instance"].isin(good_instances)].copy()
+
+if train_df.empty:
+    raise ValueError(
+        "No hay suficientes datos para entrenar con NORMAL_IPS. "
+        "Revisa que existan en el dataset y que tengan >= MIN_POINTS."
+    )
+
+id_cols = ["t15", "instance", "ip"]
+X_train = train_df.drop(columns=id_cols)
+
+scaler = StandardScaler()
+X_train_s = scaler.fit_transform(X_train)
+
+iso = IsolationForest(
+    n_estimators=500,
+    contamination=CONTAM,
+    random_state=42
+)
+iso.fit(X_train_s)
+
+train_scores = -iso.score_samples(X_train_s)
+threshold = float(np.percentile(train_scores, P))
+
+print("\n✅ Entrenado con instancias normales:", good_instances)
+print(f"✅ Threshold GLOBAL (P{P} sobre normales):", threshold)
+
+# =========================
+# 2) Evaluar TODOS los servidores
+# =========================
+results = []
+
+for server in win["instance"].unique():
+    data = win[win["instance"] == server].sort_values("t15").reset_index(drop=True)
+
+    # Warm-up por servidor (si es nuevo o poco histórico)
+    n_points = data["t15"].nunique()
+    if n_points < MIN_POINTS:
+        temp = data[["t15", "instance", "ip"]].copy()
+        temp["anomaly_score"] = np.nan
+        temp["threshold"] = threshold
+        temp["is_anomaly"] = False
+        temp["is_sustained"] = False
+        temp["status"] = "learning"
+        temp["server"] = server
+        results.append(temp)
+        continue
+
+    X = data.drop(columns=["t15", "instance", "ip"])
+    X_s = scaler.transform(X)
+
+    scores = -iso.score_samples(X_s)
+
+    out = data[["t15", "instance", "ip"]].copy()
+    out["anomaly_score"] = scores
+    out["threshold"] = threshold
+    out["is_anomaly"] = out["anomaly_score"] >= threshold
+    out["server"] = server
+    out["status"] = "active"
+
+    # Anomalía sostenida (por servidor, en el tiempo)
+    out["is_sustained"] = (
+        out["is_anomaly"]
+        .rolling(SUSTAIN_N)
+        .sum() >= SUSTAIN_N
+    )
+
+    results.append(out)
+
+final = pd.concat(results, ignore_index=True)
+
+# =========================
+# 3) Resumen: puntual vs sostenida
+# =========================
+comparison = final.groupby("server").agg(
+    anomaly_rate=("is_anomaly", "mean"),
+    sustained_rate=("is_sustained", "mean"),
+    points=("t15", "nunique"),
+    status=("status", lambda s: s.iloc[0])
+).sort_values("sustained_rate", ascending=False)
+
+print("\n📌 Comparación por servidor (puntual vs sostenida):")
+print(comparison)
+
+print("\n📌 Top servidores por sostenida:")
+print(comparison[["sustained_rate", "anomaly_rate", "points", "status"]].head(10))
+
+#ROC AUC
+from sklearn.metrics import roc_auc_score
+
+PROBLEM_SERVERS = [
+    "192.168.60.238:9182",
+    "192.168.60.239:9182"
+]
+
+df_eval = final.copy()
+
+# Quitar servidores en learning
+df_eval = df_eval[df_eval["status"] == "active"].copy()
+
+# Etiqueta real
+df_eval["y_true"] = df_eval["server"].isin(PROBLEM_SERVERS).astype(int)
+
+# Eliminar posibles NaN
+df_eval = df_eval.dropna(subset=["anomaly_score"])
+
+roc_global = roc_auc_score(df_eval["y_true"], df_eval["anomaly_score"])
+
+print("ROC-AUC GLOBAL (15m):", round(roc_global, 4))
+
+#KS
+from scipy.stats import ks_2samp
+
+# Quitar learning
+df_eval = final[final["status"] == "active"].copy()
+
+# Etiqueta real - Re-adding this line to ensure 'y_true' exists
+df_eval["y_true"] = df_eval["server"].isin(PROBLEM_SERVERS).astype(int)
+
+# Separar scores
+scores_normal = df_eval[df_eval["y_true"] == 0]["anomaly_score"]
+scores_problem = df_eval[df_eval["y_true"] == 1]["anomaly_score"]
+
+ks_stat, ks_p = ks_2samp(scores_normal, scores_problem)
+
+print("KS statistic GLOBAL:", round(ks_stat, 4))
+print("KS p-value:", ks_p)
+
+
+
+
