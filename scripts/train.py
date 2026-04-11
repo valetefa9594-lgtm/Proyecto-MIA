@@ -88,7 +88,6 @@ def build_windows(g: pd.DataFrame, window_n: int, instance_name: str = None) -> 
     g = g.sort_values("t15").copy()
     g = g.reset_index(drop=True)
 
-
     if "instance" not in g.columns:
         g["instance"] = instance_name
 
@@ -103,12 +102,15 @@ def build_windows(g: pd.DataFrame, window_n: int, instance_name: str = None) -> 
 
     out = pd.concat([out, roll.mean().add_prefix("mean_")], axis=1)
     out = pd.concat([out, roll.max().add_prefix("max_")], axis=1)
-    out = pd.concat([out, roll.std().add_prefix("std_")], axis=1)
 
-    trend = g[feat_cols].diff().rolling(window_n, min_periods=window_n).mean()
-    out = pd.concat([out, trend.add_prefix("trend_")], axis=1)
+    std_df = roll.std(ddof=0).add_prefix("std_").fillna(0)
+    out = pd.concat([out, std_df], axis=1)
 
-    return out.dropna().reset_index(drop=True)
+    trend = g[feat_cols].diff().rolling(window_n, min_periods=1).mean()
+    trend = trend.add_prefix("trend_").fillna(0)
+    out = pd.concat([out, trend], axis=1)
+
+    return out.reset_index(drop=True)
 
 def main():
     wide = load_and_prep(CSV_PATH)
