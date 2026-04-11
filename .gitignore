@@ -14,12 +14,25 @@ venv/
 data/raw/
 data/processed/
 
-# Modelos
-models/*.joblib
+models/*
+!models/README.md
+!models/config.json
+!models/threshold.json
+!models/feature_names.json
+!models/good_instances.json
 
-# Resultados
-results/
-out/
+results/*
+!results/metrics/
+!results/metrics/metricas_finales.md
+!results/reports/
+!results/reports/resumen_validacion.md
+!results/figures/
+!results/figures/README.md
+
+out/*
+!out/alerts_last.csv
+!out/events.csv
+!out/final_scores.csv
 
 # Logs y temporales
 *.log
@@ -29,5 +42,5 @@ out/
 .DS_Store
 Thumbs.db
 
-# Estado (tu proyecto IA)
-state/
+state/*
+!state/README.md
