@@ -1,0 +1,18 @@
+[
+  "mean_cpu_pct",
+  "mean_disk_pct_C:",
+  "mean_disk_pct_D:",
+  "mean_mem_pct",
+  "max_cpu_pct",
+  "max_disk_pct_C:",
+  "max_disk_pct_D:",
+  "max_mem_pct",
+  "std_cpu_pct",
+  "std_disk_pct_C:",
+  "std_disk_pct_D:",
+  "std_mem_pct",
+  "trend_cpu_pct",
+  "trend_disk_pct_C:",
+  "trend_disk_pct_D:",
+  "trend_mem_pct"
+]

@@ -16,11 +16,11 @@ SEP = ";"
 
 # 15m real
 WINDOW_N = 32      # 8 horas
-MIN_POINTS = 192   # 48 horas warm-up
+MIN_POINTS = 1
 P = 97
 CONTAM = 0.01
 
-NORMAL_IPS = ["192.168.60.12", "192.168.60.45", "10.20.0.5", "192.168.60.53"]  # sin puerto
+NORMAL_IPS = ["192.168.1.2", "192.168.1.5"] 
 
 MODELS_DIR = Path("models")
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,13 +83,24 @@ def impute_post_continuity(wide: pd.DataFrame) -> pd.DataFrame:
 
     return wide
 
-def build_windows(g: pd.DataFrame, window_n: int) -> pd.DataFrame:
+
+def build_windows(g: pd.DataFrame, window_n: int, instance_name: str = None) -> pd.DataFrame:
     g = g.sort_values("t15").copy()
+    g = g.reset_index(drop=True)
+
+
+    if "instance" not in g.columns:
+        g["instance"] = instance_name
+
     feat_cols = [c for c in g.columns if c not in ["t15", "instance"]]
 
     roll = g[feat_cols].rolling(window_n, min_periods=window_n)
 
-    out = pd.DataFrame({"t15": g["t15"], "instance": g["instance"]})
+    out = pd.DataFrame({
+        "t15": g["t15"].values,
+        "instance": g["instance"].values
+    })
+
     out = pd.concat([out, roll.mean().add_prefix("mean_")], axis=1)
     out = pd.concat([out, roll.max().add_prefix("max_")], axis=1)
     out = pd.concat([out, roll.std().add_prefix("std_")], axis=1)
@@ -104,9 +115,18 @@ def main():
     wide = enforce_continuity_15m(wide)
     wide = impute_post_continuity(wide)
 
-    win = wide.groupby("instance", group_keys=False).apply(
-        lambda x: build_windows(x, WINDOW_N)
-    ).reset_index(drop=True)
+    wide = wide.reset_index(drop=True)
+
+    print("Columnas de wide:", wide.columns)
+    print(wide.head())
+
+
+    
+    win = (
+    wide.groupby("instance", group_keys=False)
+        .apply(lambda x: build_windows(x, WINDOW_N, instance_name=x.name))
+        .reset_index(drop=True)
+)
 
     win = win.copy()
     win["ip"] = win["instance"].apply(get_ip)
