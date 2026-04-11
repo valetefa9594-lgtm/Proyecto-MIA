@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Entornos virtuales
+venv/
+.env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Datos
+data/raw/
+data/processed/
+
+# Modelos
+models/*.joblib
+
+# Resultados
+results/
+out/
+
+# Logs y temporales
+*.log
+*.tmp
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Estado (tu proyecto IA)
+state/
