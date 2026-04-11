@@ -1,0 +1,56 @@
+# ===============================
+# CONFIGURACIÓN GENERAL DEL MODELO
+# ===============================
+
+model:
+  contamination: 0.05
+  random_state: 42
+  n_estimators: 100
+
+# ===============================
+# CONFIGURACIÓN DE FEATURES
+# ===============================
+
+features:
+  window_size: 8
+  min_points: 4
+
+# ===============================
+# DATASETS
+# ===============================
+
+data:
+  train_path: "data/train.csv"
+  predict_path: "data/predict.csv"
+
+# ===============================
+# OUTPUTS
+# ===============================
+
+output:
+  model_path: "models/isoforest.joblib"
+  scaler_path: "models/scaler.joblib"
+  feature_names_path: "models/feature_names.json"
+  threshold_path: "models/threshold.json"
+  good_instances_path: "models/good_instances.json"
+  config_path: "models/config.json"
+
+  results_path: "out/final_scores.csv"
+  events_path: "out/events.csv"
+  alerts_path: "out/alerts_last.csv"
+
+# ===============================
+# SERVIDORES NORMALES
+# ===============================
+
+normal_instances:
+  - "192.168.1.2:9182"
+  - "192.168.1.5:9182"
+
+# ===============================
+# ALERTAS
+# ===============================
+
+alerts:
+  min_duration_hours: 2
+  anomaly_threshold_percentile: 95
