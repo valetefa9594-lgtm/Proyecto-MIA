@@ -21,7 +21,7 @@ Se implementa un sistema de detección de anomalías basado en aprendizaje autom
 
 ## Flujo del sistema
 
-![Flujo](docs/imagenes/Diagrama de flujo.jpg)
+![Flujo](docs/imagenes/Flujo.jpg)
 
 El flujo describe el proceso completo desde la carga de datos hasta la generación de alertas, incluyendo la validación de anomalías persistentes para reducir falsos positivos.
 
