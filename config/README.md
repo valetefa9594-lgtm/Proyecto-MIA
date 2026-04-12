@@ -1,0 +1,1 @@
+La configuración incluida en este repositorio corresponde al prototipo funcional y a un entorno de demostración. Las métricas reportadas en la evaluación formal del modelo fueron obtenidas en un entorno de experimentación offline con un conjunto de datos distinto y parámetros ajustados específicamente para validación.
