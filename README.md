@@ -1,23 +1,23 @@
-# Sistema Predictivo de Detección de Fallas en Infraestructura TI mediante IA
+# Modelo de IA para la detección temprana de fallas en servidores
 
-## 1. Descripción del problema
+## Descripción
 
-La organización analizada depende del funcionamiento continuo de su infraestructura tecnológica para soportar procesos críticos del negocio. Sin embargo, el monitoreo tradicional basado en umbrales fijos y revisión reactiva de alertas no permite detectar de forma temprana comportamientos anómalos en los servidores. Como consecuencia, las fallas suelen identificarse cuando el sistema ya presenta degradación crítica, generando lentitud, interrupciones del servicio y afectaciones operativas.
+En entornos de infraestructura tecnológica, el monitoreo tradicional basado en umbrales fijos presenta limitaciones para detectar anomalías de forma oportuna. Este proyecto propone un modelo de inteligencia artificial basado en Isolation Forest para identificar comportamientos anómalos en métricas de servidores como CPU, memoria y disco.
 
-## 2. Solución propuesta
+El objetivo es anticipar fallas antes de que se conviertan en incidentes críticos, mejorando la disponibilidad de los servicios tecnológicos.
 
-Este prototipo implementa un sistema de detección temprana de anomalías en servidores de infraestructura TI mediante inteligencia artificial. La solución utiliza un modelo de aprendizaje automático no supervisado, específicamente Isolation Forest, para analizar métricas históricas de CPU, memoria y disco, identificar patrones anómalos y generar alertas sostenidas.
+## Solución
 
-El sistema contempla:
-- carga y limpieza de métricas,
-- continuidad temporal por intervalos de 15 minutos,
-- imputación de datos faltantes,
-- construcción de variables de ventana,
-- entrenamiento del modelo,
-- cálculo de umbral de anomalía,
-- predicción sobre nuevos datos,
-- detección de eventos sostenidos,
-- exportación de resultados y alertas.
+Se implementa un sistema de detección de anomalías basado en aprendizaje automático no supervisado que:
+
+- Procesa métricas de infraestructura
+- Genera variables mediante ventanas temporales
+- Detecta anomalías usando Isolation Forest
+- Genera alertas basadas en anomalías sostenidas (2 horas)
+
+## Arquitectura del sistema
+
+![Arquitectura](docs/images/figura_7_arquitectura.p)
 
 ## 3. Estructura del repositorio
 
