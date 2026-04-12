@@ -77,7 +77,7 @@ Estas métricas evidencian una adecuada capacidad de discriminación entre compo
 
 Las métricas fueron calculadas en un entorno de experimentación (Google Colab):
 
-- 📄 [Evaluación en PDF](docs/evaluacion_modelo.pdf)
+- 📄 [Evaluación en PDF](docs/Proyecto Capstone Collab.pdf)
 
 ## Tecnologías utilizadas
 
