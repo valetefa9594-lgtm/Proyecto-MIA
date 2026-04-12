@@ -29,22 +29,22 @@ El flujo describe el proceso completo desde la carga de datos hasta la generaci�
                                     Proyecto-MIA/
                                    │
                                    ├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── sample/
-│
-├── notebooks/
-├── scripts/
-│   ├── train.py
-│   ├── predict.py
-│   ├── alerts.py
-│   ├── preprocess.py
-│   ├── features.py
-│
-├── models/
-├── results/
-├── docs/
-├── tests/
+                                   │   ├── raw/
+                                   │   ├── processed/
+                                   │   └── sample/
+                                   │
+                                   │ ── notebooks/
+                                   ├── scripts/
+                                   │   ├── train.py
+                                   │   ├── predict.py
+                                   │   ├── alerts.py
+                                   │   ├── preprocess.py
+                                   │   ├── features.py
+                                   │
+                                   ├── models/
+                                   ├── results/
+                                   ├── docs/
+                                   ├── tests/
 
 ## Instalación
 
