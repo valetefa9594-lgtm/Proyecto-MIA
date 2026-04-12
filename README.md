@@ -26,9 +26,9 @@ Se implementa un sistema de detección de anomalías basado en aprendizaje autom
 El flujo describe el proceso completo desde la carga de datos hasta la generación de alertas, incluyendo la validación de anomalías persistentes para reducir falsos positivos.
 
 ## Estructura del proyecto
-Proyecto-MIA/
-│
-├── data/
+                                    Proyecto-MIA/
+                                   │
+                                   ├── data/
 │   ├── raw/
 │   ├── processed/
 │   └── sample/
