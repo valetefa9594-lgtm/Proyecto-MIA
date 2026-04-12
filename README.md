@@ -65,7 +65,7 @@ python scripts/predict.py
 python scripts/alerts.py
 
 
-## 9. RESULTADOS
+## RESULTADOS
 ```markdown
 ## Resultados
 El modelo fue evaluado en un entorno controlado obteniendo:
@@ -78,5 +78,17 @@ Estas métricas evidencian una adecuada capacidad de discriminación entre compo
 Las métricas fueron calculadas en un entorno de experimentación (Google Colab):
 
 - 📄 [Evaluación en PDF](docs/evaluacion_modelo.pdf)
-- 📓 Notebook disponible en `notebooks/`
+
+## Tecnologías utilizadas
+
+- Python
+- scikit-learn
+- Pandas
+- Prometheus
+- Grafana
+
+## Autores
+Valeria Masache
+Santiago Guachamin  
+Maestría en Inteligencia Artificial Aplicada
 
