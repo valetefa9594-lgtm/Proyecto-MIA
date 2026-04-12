@@ -17,27 +17,66 @@ Se implementa un sistema de detección de anomalías basado en aprendizaje autom
 
 ## Arquitectura del sistema
 
-![Arquitectura](docs/images/figura_7_arquitectura.p)
+![Arquitectura](docs/imagenes/Arquitectura.jpg)
 
-## 3. Estructura del repositorio
+## Flujo del sistema
 
-- `data/`: datasets de entrenamiento, predicción y muestras.
-- `scripts/`: scripts principales del sistema.
-- `models/`: artefactos del modelo entrenado.
-- `results/`: resultados finales, métricas y evidencias.
-- `notebooks/`: análisis exploratorio, entrenamiento y validación.
-- `docs/`: anexos, diagramas y documentación de apoyo.
-- `state/`: archivos de persistencia de eventos.
+![Flujo](docs/imagenes/Diagrama_de_flujo.jpg)
 
-## 4. Requisitos técnicos y dependencias
+El flujo describe el proceso completo desde la carga de datos hasta la generación de alertas, incluyendo la validación de anomalías persistentes para reducir falsos positivos.
 
-- Python 3.10 o superior
-- pandas
-- numpy
-- scikit-learn
-- joblib
+## Estructura del proyecto
+Proyecto-MIA/
+│
+├── data/
+│   ├── raw/
+│   ├── processed/
+│   └── sample/
+│
+├── notebooks/
+├── scripts/
+│   ├── train.py
+│   ├── predict.py
+│   ├── alerts.py
+│   ├── preprocess.py
+│   ├── features.py
+│
+├── models/
+├── results/
+├── docs/
+├── tests/
 
-Instalación de dependencias:
+## Instalación
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/valetefa9594-lgtm/Proyecto-MIA.git
+cd Proyecto-MIA
+pip install -r requerimientos.txt
+
+## Ejecución
+
+Entrenamiento del modelo:
+python scripts/train.py
+
+##Prediccion
+python scripts/predict.py
+
+##Generacion de alertas
+python scripts/alerts.py
+
+
+## 9. RESULTADOS
+```markdown
+## Resultados
+El modelo fue evaluado en un entorno controlado obteniendo:
+- ROC-AUC: 0.8173
+- KS: 0.6548
+Estas métricas evidencian una adecuada capacidad de discriminación entre comportamientos normales y anómalos.
+
+## Evaluación del modelo
+
+Las métricas fueron calculadas en un entorno de experimentación (Google Colab):
+
+- 📄 [Evaluación en PDF](docs/evaluacion_modelo.pdf)
+- 📓 Notebook disponible en `notebooks/`
+
