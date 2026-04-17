@@ -88,6 +88,16 @@ Las métricas fueron calculadas en un entorno de experimentación (Google Colab)
 - Pandas
 - Prometheus
 - Grafana
+##Pasos para ejecutar:
+
+1. Instalar dependencias: pip install -r requirements.txt
+2. Ejecutar entrenamiento: python train.py
+3. Ejecutar predicción: python predict.py
+4. Revisar resultados en carpeta /results
+
+Resultado esperado:
+Se generará un archivo con anomaly_score y alertas detectadas.
+
 
 ## Autores
 Valeria Masache
