@@ -29,3 +29,4 @@ Por motivos de confidencialidad, los datos reales no se incluyen en este reposit
 - memory_usage
 - disk_io
 - network_usage
+Las direcciones IP y nombres de host fueron sustituidos por identificadores genéricos en los datasets de muestra
