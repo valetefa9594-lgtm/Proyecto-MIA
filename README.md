@@ -1,3 +1,5 @@
+#Versión: v1.0  
+#Fecha: Abril 2026
 # Modelo de IA para la detección temprana de fallas en servidores
 
 ## Descripción
