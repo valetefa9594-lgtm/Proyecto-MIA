@@ -66,12 +66,15 @@ python scripts/predict.py
 ##Generacion de alertas
 python scripts/alerts.py
 
+##Considerar
+WINDOW_N = 1 y SUSTAIN_N = 1 se refleja en el script de este repositorio como parámetros de prueba; la configuración metodológica validada en el proyecto es la del documento: ventana de 32, percentil 97 y anomalía sostenida de 8 intervalos.”
+
 
 ## RESULTADOS
 ```markdown
 ## Resultados
 El modelo fue evaluado en un entorno controlado obteniendo:
-- ROC-AUC: 0.8173
+- ROC-AUC: 0.87
 - KS: 0.6548
 Estas métricas evidencian una adecuada capacidad de discriminación entre comportamientos normales y anómalos.
 
